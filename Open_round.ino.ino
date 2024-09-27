@@ -121,7 +121,7 @@ void loop() {
          (blueValue >= 41 && blueValue <= 45))) {
       
       if (color_counter == 0) {
-        color_counter++;
+        //color_counter++;
         no_of_turns++;
 
         // Right Turn Example
