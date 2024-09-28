@@ -1,6 +1,8 @@
+//blue - left turn, orange - right turn
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <Adafruit_TCS34725.h>
 #include <Servo.h>
 
 // Constants
@@ -18,50 +20,35 @@ const int S2 = 10;
 const int S3 = 11;
 const int COLOR_OUT = 12;
 
+
 // Servo Pin
 const int SERVO_PIN = 45;
 
-// Calibration Values
-int distinctRGB[NUM_OF_COLORS][3] = {
-  {250, 250, 250}, // White
-  {0, 0, 0},       // Black
-  {142, 34, 41},    // Red
-  {166, 125, 71},   // Yellow
-  {35, 55, 38},     // Green
-  {150, 50, 43},    // Orange
-  {22, 25, 45}      // Blue
-};
-
-String distinctColors[NUM_OF_COLORS] = {
-  "white", "black", "red", "yellow", "green", "orange", "blue"
-};
-
 // Variables
-int redValue = 0, greenValue = 0, blueValue = 0;
+int redValue = 0, greenValue = 0, blueValue = 0, clearValue = 0;
 unsigned long t_old = 0.0, t_new = 0.0;
 
 Servo servo;
 double leftDistance, rightDistance;
 double PID_error;
 double steering_angle_degrees, prev_err = 0;
-const double std_steering_angle = 113.0; // standard steering angle
+const double std_steering_angle = 130.0; // standard steering angle
 const double Kp = 0.08, Kd = 0.15, Ki  = 0.0;
 double sum_err = 0;
 int pos = 0;
-int color_counter = 0, no_of_turns = 0;
+int no_of_turns = 0;
 double Gyro_angle = 0;
 
 // MPU6050 Object
 Adafruit_MPU6050 mpu;
-
+Adafruit_TCS34725 tcs = Adafruit_TCS34725();
 // Function Prototypes
 double readUltrasonic(int trigPin, int echoPin);
 double PID(double err);
-void detectRed();
-void detectGreen();
-void detectBlue();
-void colorDetect();
 double getGyroReading();
+bool isOrange(int red, int green, int blue);
+bool isBlue(int red, int green, int blue);
+
 
 // Setup Function
 void setup() {
@@ -74,7 +61,9 @@ void setup() {
     servo.write(pos);
     delay(6);
   }
-
+  pinMode(4,OUTPUT);//in 1 or 3
+  pinMode(6,OUTPUT);// en A or B
+  pinMode(5,OUTPUT);// in 2 or 4
   // Initialize Color Sensor Pins
   pinMode(TRIG_L, OUTPUT);
   pinMode(TRIG_R, OUTPUT);
@@ -85,7 +74,6 @@ void setup() {
   pinMode(S2, OUTPUT);
   pinMode(S3, OUTPUT);
   pinMode(COLOR_OUT, INPUT);
-  pinMode(15,OUTPUT);
   digitalWrite(S0, HIGH);
   digitalWrite(S1, HIGH);
 
@@ -104,80 +92,75 @@ void setup() {
 
 // Main Loop Function
 void loop() {
- // t = millis();
-
-  // Color Detection and Turning Logic
   if (no_of_turns <= 12) {
-    detectRed();
-    detectGreen();
-    detectBlue();
+    moveforward();
+    tcs.getRawData(&redValue, &greenValue, &blueValue, &clearValue);
 
-    // Example condition based on detected colors
-    if (((redValue >= 35 && redValue <= 45) && 
-         (greenValue >= 38 && greenValue <= 42) &&
-         (blueValue >= 48 && blueValue <= 55)) ||
-        ((redValue >= 51 && redValue <= 55) && 
-         (greenValue >= 41 && greenValue <= 45) && 
-         (blueValue >= 41 && blueValue <= 45))) {
-      
-      if (color_counter == 0) {
-        //color_counter++;
-        no_of_turns++;
+    if (isOrange(redValue, greenValue, blueValue) || isBlue(redValue, greenValue, blueValue)) {
+      no_of_turns++;
+      moveforwardturn();
+      int target_angle;
+      int turn_direction;
 
-        // Right Turn Example
-        if (std_steering_angle + 72 < pos) { // Right turn
-          for (; pos >= std_steering_angle + 72; pos--) {
-            servo.write(pos);
-            delay(5); // Added small delay for smoother motion
-          }
-        } else { // Left turn
-          for (; pos <= std_steering_angle + 72; pos++) {
-            servo.write(pos);
-            delay(5); // Added small delay for smoother motion
-          }
-        }
-       
-        // Gyro Angle Handling
-        Gyro_angle = 0;
-        unsigned long startTime = millis();
-        while (Gyro_angle <= 90 && (millis() - startTime) < 8000) {
-          
-         
-          t_old = micros() ;// Timeout after 2 seconds
-          Gyro_angle += getGyroReading();
-        }
-        Gyro_angle = 0;
+      if (isOrange(redValue, greenValue, blueValue)) {
+        // Right turn
+        target_angle = std_steering_angle + 90;  // 220 degrees
+        turn_direction = 1;
+      } else {
+        // Left turn
+        target_angle = std_steering_angle - 90;  // 40 degrees
+        turn_direction = -1;
       }
-    } else {
-      color_counter = 0; // Reset counter if condition not met
+
+      // Perform the turn
+      while (pos != target_angle) {
+        pos += turn_direction;
+        servo.write(pos);
+        delay(5);  // Small delay for smooth motion
+      }
+
+      // Use gyro to confirm turn
+      Gyro_angle = 0;
+      unsigned long startTime = millis();
+      while (abs(Gyro_angle) < 90 && (millis() - startTime) < 8000) {
+        t_old = micros();
+        double gyroReading = getGyroReading();
+        // Apply the correction factor to the gyro reading
+        Gyro_angle += gyroReading *  turn_direction;
+      }
+Gyro_angle = 0;
+
+      // Return to center position after turn
+      while (pos != std_steering_angle) {
+        pos += (pos < std_steering_angle) ? 1 : -1;
+        servo.write(pos);
+        delay(5);
+      }
+    }
+    else {
+      // Normal line following logic
       leftDistance = readUltrasonic(TRIG_L, ECHO_L);
       rightDistance = readUltrasonic(TRIG_R, ECHO_R);
-      PID_error = leftDistance - rightDistance; // Positive: turn left, Negative: turn right
+      PID_error = leftDistance - rightDistance;
       steering_angle_degrees = (30 * PID(PID_error)) + std_steering_angle;
       prev_err = PID_error;
 
       // Clamp the steering angle
-      if (steering_angle_degrees > (std_steering_angle + 45))
-        steering_angle_degrees = std_steering_angle + 45;
-      else if (steering_angle_degrees < (std_steering_angle - 45))
-        steering_angle_degrees = std_steering_angle - 45;
+      steering_angle_degrees = constrain(steering_angle_degrees, std_steering_angle - 45, std_steering_angle + 45);
 
       // Move Servo to the new steering angle
-      if (steering_angle_degrees > pos) {
-        for (; pos <= steering_angle_degrees; pos++) {
-          servo.write(pos);
-          delay(5); // Added small delay for smoother motion
-        }
-      } else if (steering_angle_degrees < pos) {
-        for (; pos >= steering_angle_degrees; pos--) {
-          servo.write(pos);
-          delay(5); // Added small delay for smoother motion
-        }
+      while (pos != (int)steering_angle_degrees) {
+        pos += (pos < steering_angle_degrees) ? 1 : -1;
+        servo.write(pos);
+        delay(5);
       }
     }
-  
   }
-  digitalWrite(15,HIGH); //write to the second arduino that will take it as a digital input
+  else{
+    stop();
+    while(1);
+
+  }
 }
 
 // Function to Read Ultrasonic Distance
@@ -187,61 +170,44 @@ double readUltrasonic(int trigPin, int echoPin) {
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(50);
   digitalWrite(trigPin, LOW);
-  double duration = pulseIn(echoPin, HIGH, 30000); // Timeout after ~30ms
-  if (duration == 0) {
-    return -1; // Indicate no object detected within range
-  }
-  return (duration * 0.034 / 2); // Convert to centimeters
+  double duration = pulseIn(echoPin, HIGH, 30000);
+  return (duration == 0) ? -1 : (duration * 0.034 / 2);
 }
 
-// PID Controller Function
 double PID(double err) {
   sum_err += err;
   return ((Kp * err) + (Ki * sum_err) + (Kd * (err - prev_err)));
 }
 
-// Functions to Detect Red, Green, and Blue
-void detectRed() {
-  digitalWrite(S2, LOW);
-  digitalWrite(S3, LOW);
-  redValue = pulseIn(COLOR_OUT, LOW, 1000); // Timeout after 1ms
-  // Convert pulse duration to frequency or another meaningful metric if needed
-  delay(20);
-}
-
-void detectGreen() {
-  digitalWrite(S2, HIGH);
-  digitalWrite(S3, HIGH);
-  greenValue = pulseIn(COLOR_OUT, LOW, 1000); // Timeout after 1ms
-  delay(20);
-}
-
-void detectBlue() {
-  digitalWrite(S2, LOW);
-  digitalWrite(S3, HIGH);
-  blueValue = pulseIn(COLOR_OUT, LOW, 1000); // Timeout after 1ms
-  delay(20);
-}
-
-// Function to Handle Color Detection Logic (If Needed Separately)
-void colorDetect() {
-  detectRed();
-  detectGreen();
-  detectBlue();
-}
-
-// Function to Get Gyro Reading using Adafruit MPU6050 Library
 double getGyroReading() {
   sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g,&temp);
-  // Assuming you want the Z-axis gyro data
-  // Convert gyro data to degrees per millisecond
-  // mpu.getEvent updates g.gyro.z in degrees per second
-  // To get degrees since last call, multiply by delta time in seconds
-  // Here, we'll calculate delta time based on loop iterations
-  // For more accurate timing, consider using interruptions or precise timers
+  mpu.getEvent(&a, &g, &temp);
   t_new = micros();
-  unsigned long deltaTime = (t_new-t_old)/(1000000); 
-  //t_old = t_new;
+  unsigned long deltaTime = (t_new - t_old) / 1000000.0;
   return g.gyro.z * deltaTime;
+}
+
+bool isOrange(int red, int green, int blue) {
+  // Adjust these values based on your sensor's readings for orange
+  return (red > 100 && green > 50 && green < 100 && blue < 50);
+}
+
+bool isBlue(int red, int green, int blue) {
+  // Adjust these values based on your sensor's readings for blue
+  return (red < 50 && green < 100 && blue > 100);
+}
+void moveforward(){
+  digitalWrite(4,LOW);
+  digitalWrite(5,HIGH);
+  analogWrite(6,255);
+}
+void moveforwardturn(){
+  digitalWrite(4,LOW);
+  digitalWrite(5,HIGH);
+  analogWrite(6,180);
+}
+void stop(){
+  digitalWrite(4,LOW);
+  digitalWrite(5,LOW);
+  analogWrite(6,0);
 }
