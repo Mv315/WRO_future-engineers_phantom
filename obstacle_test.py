@@ -184,3 +184,27 @@ def main():
 
 if __name__ == "__main__":
     main()
+  import serial
+import time
+
+def send_receive_message(port: str, baud_rate: int = 9600, timeout: int = 1):
+    # Set up the serial connection
+    ser = serial.Serial(port, baudrate=baud_rate, timeout=timeout)
+    time.sleep(2)  # Wait for the connection to establish
+
+    # Send 'Hello, World!' to Arduino
+    message = "Hello, World!"
+    ser.write(message.encode())
+
+    print(f"Message sent to Arduino: {message}")
+
+    # Read the response from Arduino
+    response = ser.readline().decode().strip()
+
+    print(f"Message received from Arduino: {response}")
+
+    ser.close()
+
+# Example usage: port and baud rate depend on your setup
+if __name__ == "__main__":
+    send_receive_message('/dev/ttyUSB0', 9600)
