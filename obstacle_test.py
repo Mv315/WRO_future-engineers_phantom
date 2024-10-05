@@ -187,7 +187,7 @@ if __name__ == "__main__":
   import serial
 import time
 
-def send_receive_message(port: str, baud_rate: int = 9600, timeout: int = 1):
+def send_receive_message(port: str, baud_rate: int = 9600, timeout: int = 2):#more than 1 sec required to read and send message back
     # Set up the serial connection
     ser = serial.Serial(port, baudrate=baud_rate, timeout=timeout)
     time.sleep(2)  # Wait for the connection to establish
