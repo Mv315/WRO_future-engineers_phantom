@@ -134,7 +134,8 @@ def main():
                             red_box[0] + red_box[2]//2, red_box[0] + red_box[2], red_box[0], False
                         )
                         message = f"r{steering_angle:.2f}"
-                        ser.write(message.encode())
+                        print(distance)
+                        #ser.write(message.encode())
                         
                     elif green_detected and not red_detected:
                         print("Green is detected")
@@ -143,7 +144,8 @@ def main():
                             green_box[0] + green_box[2]//2, green_box[0] + green_box[2], green_box[0], True
                         )
                         message = f"g{steering_angle:.2f}"
-                        ser.write(message.encode())
+                        print(distance)
+                        #ser.write(message.encode())
                         
                     elif red_detected and green_detected:
                         print("Both red and green are detected")
@@ -155,14 +157,15 @@ def main():
                                 FOCAL_LENGTH_MM, SENSOR_WIDTH_MM, IMAGE_WIDTH_PIXELS, red_box[3],
                                 red_box[0] + red_box[2]//2, red_box[0] + red_box[2], red_box[0], False
                             )
-                            message = f"r{steering_angle:.2f}"
+                            print(distance)#message = f"r{steering_angle:.2f}"
                         else:
                             steering_angle, distance = calculate_steering_angle(
                                 FOCAL_LENGTH_MM, SENSOR_WIDTH_MM, IMAGE_WIDTH_PIXELS, green_box[3],
                                 green_box[0] + green_box[2]//2, green_box[0] + green_box[2], green_box[0], True
                             )
-                            message = f"g{steering_angle:.2f},{distance:.2f}"
-                        ser.write(message.encode())
+                            print(distance)
+                            #message = f"g{steering_angle:.2f},{distance:.2f}"
+                        #ser.write(message.encode())
                         
                     else:
                         print("Neither red nor green is detected")
