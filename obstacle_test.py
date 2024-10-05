@@ -4,31 +4,57 @@ import serial
 import math
 import concurrent.futures
 import subprocess
+import math
 
-def calculate_steering_angle(focal_length_mm, sensor_width_mm, image_width_pixels, 
-                             object_height_pixels, x1, block_right_edge_x, block_left_edge_x, is_green):
-    # Calculate horizontal field of view
-    horizontal_fov = 2 * math.atan(sensor_width_mm / (2 * focal_length_mm))
-    
-    # Calculate pixels per millimeter
-    pixels_per_mm = image_width_pixels / sensor_width_mm
-    
-    # Estimate distance to object (assuming object height is known)
-    ACTUAL_OBJECT_HEIGHT_MM = 50  # Adjust this based on your actual object height
-    distance_mm = (focal_length_mm * ACTUAL_OBJECT_HEIGHT_MM * image_width_pixels) / (object_height_pixels * sensor_width_mm)
-    
-    # Calculate angular position of the object
-    pixels_from_center = (x1 + (block_right_edge_x - block_left_edge_x) / 2) - (image_width_pixels / 2)
-    angle_rad = math.atan2(pixels_from_center, pixels_per_mm * focal_length_mm)
-    angle_deg = math.degrees(angle_rad)
-    
-    # Adjust steering based on whether it's green (left) or red (right)
-    if is_green:
-        steering_angle = -angle_deg  # Turn left for green
+def calculate_distance(real_width_cm, real_height_cm, img_width_px, img_height_px):
+  
+    # -------------------------
+    # Hardcoded Camera Constants
+    # -------------------------
+
+    # Sensor specifications
+    sensor_width_mm = 3.68      # Sensor width in millimeters
+    sensor_height_mm = 2.76     # Sensor height in millimeters
+
+    # Pixel size in micrometers
+    pixel_width_um = 1.12        # Pixel width in micrometers
+    pixel_height_um = 1.12       # Pixel height in micrometers
+
+    # Convert pixel size to centimeters
+    pixel_width_cm = pixel_width_um * 1e-4   # 1 µm = 1e-4 cm
+    pixel_height_cm = pixel_height_um * 1e-4 # 1 µm = 1e-4 cm
+
+    # Focal length in millimeters
+    focal_length_mm = 3.6        # Focal length in millimeters
+
+    # Convert focal length to centimeters
+    focal_length_cm = focal_length_mm / 10.0  # 1 cm = 10 mm
+
+    # -------------------------
+    # Calculate Distance
+    # -------------------------
+
+    # Calculate ratios to determine if the object is fully within the FOV
+    ratio_width = img_width_px / real_width_cm
+    ratio_height = img_height_px / real_height_cm
+
+    if math.isclose(ratio_width, ratio_height, rel_tol=1e-2):
+        # Object is fully within the Field of View (FOV)
+        # Using height for distance calculation
+        distance_cm = (focal_length_cm * real_height_cm) / (img_height_px * pixel_height_cm)
     else:
-        steering_angle = angle_deg  # Turn right for red
-    
-    return steering_angle, distance_mm
+        # Object is partially outside the FOV
+        # Use the constraining dimension (the one with the smaller ratio)
+        min_ratio = min(ratio_width, ratio_height)
+        if min_ratio == ratio_width:
+            # Width is the constraining dimension
+            distance_cm = (focal_length_cm * real_width_cm) / (img_width_px * pixel_width_cm)
+        else:
+            # Height is the constraining dimension
+            distance_cm = (focal_length_cm * real_height_cm) / (img_height_px * pixel_height_cm)
+
+    return distance_cm
+
 
 def detect_red_histogram(image):
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
