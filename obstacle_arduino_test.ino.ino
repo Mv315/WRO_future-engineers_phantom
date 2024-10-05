@@ -86,3 +86,21 @@ void loop() {
     }
   }
 }
+void setup() {
+  // Start the serial communication at 9600 baud rate
+  Serial.begin(9600);
+  while (!Serial) {
+    // Wait for the serial port to connect
+  }
+}
+
+void loop() {
+  // Check if data is available to read from the Raspberry Pi
+  if (Serial.available() > 0) {
+    // Read the incoming message from Raspberry Pi
+    String message = Serial.readStringUntil('\n');
+    
+    // Send the message back to the Raspberry Pi
+    Serial.println(message);
+  }
+}
