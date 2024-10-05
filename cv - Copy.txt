@@ -1,0 +1,105 @@
+import cv2
+import numpy as np
+import concurrent.futures
+import time
+from picamera2 import Picamera2
+
+def detect_red_histogram(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    kernel = np.ones((5,5), np.uint8)
+    hsv = cv2.morphologyEx(hsv, cv2.MORPH_CLOSE, kernel)
+    hsv = cv2.morphologyEx(hsv, cv2.MORPH_OPEN, kernel)
+    
+    lower_red1 = np.array([0, 40, 40])
+    upper_red1 = np.array([10, 255, 255])
+    lower_red2 = np.array([170, 40, 40])
+    upper_red2 = np.array([180, 255, 255])
+    
+    time1 = time.time()
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2
+    
+    hist = cv2.calcHist([hsv], [0, 1], mask, [180, 256], [0, 180, 0, 256])
+    cv2.normalize(hist, hist, 0, 255, cv2.NORM_MINMAX)
+    
+    backproj = cv2.calcBackProject([hsv], [0, 1], hist, [0, 180, 0, 256], 1)
+    
+    _, thresh = cv2.threshold(backproj, 50, 255, cv2.THRESH_BINARY)
+    
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    time2 = time.time()
+    print(f"Red detection time: {time2-time1:.4f} seconds")
+    
+    if contours and max(cv2.contourArea(c) for c in contours) > 500:
+        max_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(max_contour)
+        return True, (x, y, w, h)
+    return False, None
+
+def detect_green_histogram(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    lower_green1 = np.array([40, 40, 40])
+    upper_green1 = np.array([80, 255, 255])
+    lower_green2 = np.array([35, 40, 40])
+    upper_green2 = np.array([45, 255, 255])
+    
+    mask1 = cv2.inRange(hsv, lower_green1, upper_green1)
+    mask2 = cv2.inRange(hsv, lower_green2, upper_green2)
+    mask = cv2.bitwise_or(mask1, mask2)
+    
+    hist = cv2.calcHist([hsv], [0, 1], mask, [180, 256], [0, 180, 0, 256])
+    cv2.normalize(hist, hist, 0, 255, cv2.NORM_MINMAX)
+    
+    backproj = cv2.calcBackProject([hsv], [0, 1], hist, [0, 180, 0, 256], 1)
+    
+    _, thresh = cv2.threshold(backproj, 5, 255, cv2.THRESH_BINARY)
+    
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if contours and max(cv2.contourArea(c) for c in contours) > 500:
+        max_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(max_contour)
+        return True, (x, y, w, h)
+    return False, None
+
+def main():
+    # Initialize Picamera2
+    picam2 = Picamera2()
+    picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
+    picam2.start()
+
+    try:
+        while True:
+            frame = picam2.capture_array()
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)  # Convert XRGB to BGR
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_red = executor.submit(detect_red_histogram, frame)
+                future_green = executor.submit(detect_green_histogram, frame)
+            
+                red_detected, red_box = future_red.result()
+                green_detected, green_box = future_green.result()
+        
+            if red_detected and not green_detected:
+                print("Red is detected")
+                
+            elif green_detected and not red_detected:
+                print("Green is detected")
+                
+            elif red_detected and green_detected:
+                print("Both red and green are detected")
+            else:
+                print("Neither red nor green is detected")
+      
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        picam2.stop()
+        cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
