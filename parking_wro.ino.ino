@@ -1,12 +1,23 @@
 // to check line 242 for which axis of gyro we will read
-#include <Wire.h>
+#include <Wire.h>a
 #include <Servo.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
 // Initialize MPU6050
 Adafruit_MPU6050 mpu;
+// Define Parking States
+enum ParkingState {
+  IDLE,
+  TURN_RIGHT_BACKWARD,
+  STRAIGHTEN_BACKWARD,
+  TURN_RIGHT_FORWARD,
+  STRAIGHTEN_FORWARD,
+  PARKING_COMPLETE
+};
 
+// Initialize current state
+ParkingState currentState = IDLE;
 // Define Servo for Steering
 Servo steeringServo;
 const int STEERING_PIN = 8;
@@ -124,113 +135,183 @@ void setup() {
 }
 
 void loop() {
-  if (!parkingComplete) {
-    // Step 1: Detect Front Wall using Color Sensor
-    if (detectColorWall()) {
-      Serial.println("Front Wall Detected. Initiating Parking Maneuver.");
+  switch (currentState) {
+    case IDLE:
+      // Wait until the front wall is detected
+      if (detectColorWall()) {
+        Serial.println("Front Wall Detected. Initiating Parking Maneuver.");
+        resetYawIntegration(); // Reset yaw before starting
+        initialYaw = integratedYaw;
+        currentState = TURN_RIGHT_BACKWARD;
+      }
+      break;
       
-      // Capture Initial Yaw
-      resetYawIntegration(); // Reset integrated yaw before starting
-      initialYaw = integratedYaw;
-      Serial.print("Initial Yaw: ");
-      Serial.println(initialYaw);
-
-      // Step 2: Turn Steering to Max Right and Move Backwards
+    case TURN_RIGHT_BACKWARD:
+      Serial.println("State: TURN_RIGHT_BACKWARD");
       turnSteering(SERVO_RIGHT);
+      moveBackward(150); // Adjust speed as needed
       startTime = millis();
+      
       while (true) {
-        moveBackward(150); // Adjust speed as needed
         float deltaYaw = readYaw();
         Serial.print("Delta Yaw: ");
         Serial.println(deltaYaw);
-
-        // Check stopping conditions
+        
         float yawChange = abs(integratedYaw - initialYaw);
         float backDistance = readUltrasonic(BACK_TRIG_PIN, BACK_ECHO_PIN);
         bool backWallDetected = detectColorWall();
-
+        
         if (yawChange >= YAW_THRESHOLD || (backDistance != -1.0 && backDistance <= MIN_DISTANCE) || backWallDetected) {
           Serial.println("Stopping Backward Movement after Turning Right.");
           stopMotors();
+          currentState = STRAIGHTEN_BACKWARD;
           break;
         }
-
-        // Timeout to prevent infinite loop
+        
         if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Turning Right.");
+          Serial.println("Timeout Reached during Turning Right Backward.");
           stopMotors();
+          currentState = IDLE; // Optionally retry or handle error
           break;
         }
       }
-
-      // Step 3: Turn Steering to Max Left and Move Backwards to Straighten
+      break;
+      
+    case STRAIGHTEN_BACKWARD:
+      Serial.println("State: STRAIGHTEN_BACKWARD");
       float straighteningInitialYaw = integratedYaw;
       turnSteering(SERVO_LEFT);
       startTime = millis();
+      
       while (true) {
         moveBackward(150); // Adjust speed as needed
         float deltaYaw = readYaw();
         Serial.print("Delta Yaw during Straightening: ");
         Serial.println(deltaYaw);
-
+        
         float yawChange = abs(integratedYaw - straighteningInitialYaw);
         float backDistance = readUltrasonic(BACK_TRIG_PIN, BACK_ECHO_PIN);
         bool backWallDetected = detectColorWall();
-
+        
         // Proportional Steering Adjustment
         if (yawChange < YAW_THRESHOLD) {
-          int steeringAdjustment = map(yawChange, 0, YAW_THRESHOLD, SERVO_LEFT, 90);
+          int steeringAdjustment = map(yawChange * 10, 0, YAW_THRESHOLD * 10, SERVO_LEFT, 90); // Multiply to maintain resolution
+          steeringAdjustment = constrain(steeringAdjustment, SERVO_LEFT, 90);
           turnSteering(steeringAdjustment);
         } else {
           turnSteering(SERVO_LEFT);
         }
-
+        
         if (yawChange >= YAW_THRESHOLD || (backDistance != -1.0 && backDistance <= MIN_DISTANCE) || backWallDetected) {
           Serial.println("Straightening Complete.");
           stopMotors();
+          currentState = TURN_RIGHT_FORWARD;
           break;
         }
-
-        // Timeout
+        
         if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Straightening.");
+          Serial.println("Timeout Reached during Straightening Backward.");
           stopMotors();
+          currentState = IDLE; // Optionally retry or handle error
           break;
         }
       }
-
-      // Step 4: Verify Position with Ultrasonic Sensors
-      if (verifyPosition()) {
-        Serial.println("Parking Successful!");
-        parkingComplete = true;
-      } else {
-        Serial.println("Adjusting Position to Equalize Distances.");
-        // Implement Adjustment Logic (e.g., Move Forward or Backward to Equalize)
-        // For simplicity, moving forward slightly and rechecking
-        moveForward(100);
-        delay(1000);
-        stopMotors();
-
-        if (verifyPosition()) {
-          Serial.println("Adjustment Successful. Parking Complete.");
-          parkingComplete = true;
-        } else {
-          Serial.println("Further Adjustment Required. Restarting Parking Maneuver.");
-          // Optionally, you could implement additional logic or retries here
+      break;
+      
+    case TURN_RIGHT_FORWARD:
+      Serial.println("State: TURN_RIGHT_FORWARD");
+      turnSteering(SERVO_RIGHT);
+      moveForward(150); // Adjust speed as needed
+      startTime = millis();
+      
+      while (true) {
+        float deltaYaw = readYaw();
+        Serial.print("Delta Yaw: ");
+        Serial.println(deltaYaw);
+        
+        float yawChange = abs(integratedYaw - initialYaw);
+        float frontDistance = readUltrasonic(FRONT_TRIG_PIN, FRONT_ECHO_PIN);
+        bool frontWallDetected = detectColorWall();
+        
+        if (yawChange >= YAW_THRESHOLD || (frontDistance != -1.0 && frontDistance <= MIN_DISTANCE) || frontWallDetected) {
+          Serial.println("Stopping Forward Movement after Turning Right.");
+          stopMotors();
+          currentState = STRAIGHTEN_FORWARD;
+          break;
+        }
+        
+        if (millis() - startTime > TIMEOUT) {
+          Serial.println("Timeout Reached during Turning Right Forward.");
+          stopMotors();
+          currentState = IDLE; // Optionally retry or handle error
+          break;
         }
       }
-    }
-  }
-
-  // Once parking is complete, you can add additional behaviors or halt.
-  // For this example, we'll stop all actions.
-  if (parkingComplete) {
-    stopMotors();
-    Serial.println("Parking Complete and Motors Stopped.");
-    while (1) {
-      // Halt the program
-      delay(1000);
-    }
+      break;
+      
+    case STRAIGHTEN_FORWARD:
+      Serial.println("State: STRAIGHTEN_FORWARD");
+      float straightenForwardInitialYaw = integratedYaw;
+      turnSteering(SERVO_LEFT);
+      startTime = millis();
+      
+      while (true) {
+        moveForward(150); // Adjust speed as needed
+        float deltaYaw = readYaw();
+        Serial.print("Delta Yaw during Straightening Forward: ");
+        Serial.println(deltaYaw);
+        
+        float yawChange = abs(integratedYaw - straightenForwardInitialYaw);
+        float frontDistance = readUltrasonic(FRONT_TRIG_PIN, FRONT_ECHO_PIN);
+        bool frontWallDetected = detectColorWall();
+        
+        // Proportional Steering Adjustment
+        if (yawChange < YAW_THRESHOLD) {
+          int steeringAdjustment = map(yawChange * 10, 0, YAW_THRESHOLD * 10, SERVO_LEFT, 90);
+          steeringAdjustment = constrain(steeringAdjustment, SERVO_LEFT, 90);
+          turnSteering(steeringAdjustment);
+        } else {
+          turnSteering(SERVO_LEFT);
+        }
+        
+        if (yawChange >= YAW_THRESHOLD || (frontDistance != -1.0 && frontDistance <= MIN_DISTANCE) || frontWallDetected) {
+          Serial.println("Straightening Forward Complete.");
+          stopMotors();
+          // Proceed to verify position
+          if (verifyPosition()) {
+            Serial.println("Parking Successful!");
+            currentState = PARKING_COMPLETE;
+          } else {
+            Serial.println("Position Verification Failed. Adjusting...");
+            currentState = IDLE; // Optionally implement further adjustment steps
+          }
+          break;
+        }
+        
+        if (millis() - startTime > TIMEOUT) {
+          Serial.println("Timeout Reached during Straightening Forward.");
+          stopMotors();
+          currentState = IDLE; // Optionally retry or handle error
+          break;
+        }
+      }
+      break;
+      
+    case PARKING_COMPLETE:
+      Serial.println("State: PARKING_COMPLETE");
+      stopMotors();
+      Serial.println("Parking Complete and Motors Stopped.");
+      while (1) {
+        // Halt the program
+        delay(1000);
+      }
+      break;
+      
+    default:
+      // Handle unexpected states
+      Serial.println("Unknown State. Resetting to IDLE.");
+      currentState = IDLE;
+      break;
   }
 }
 
@@ -376,7 +457,7 @@ bool verifyPosition() {
     if (frontDistance < MIN_DISTANCE && backDistance < MIN_DISTANCE) {
       // Define a tolerance for equality
       float tolerance = 2.0; // cm
-      if (abs(frontDistance - backDistance) <= tolerance) {
+      if (abs(frontDistance 2- backDistance) <= tolerance) {
         return true;
       }
     }
