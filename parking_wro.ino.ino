@@ -302,19 +302,20 @@ void loop() {
 // Function to read and integrate yaw from MPU6050
 float readYaw() {
 Wire.beginTransmission(MPU_addr);
-Wire.write(0x3B);
-Wire.endTransmission(false);
-Wire.requestFrom(MPU_addr,14,true);
-AcZ=Wire.read()<<8|Wire.read();
-AcX=Wire.read()<<8|Wire.read();
-AcY=Wire.read()<<8|Wire.read();
-AcZ=Wire.read()<<8|Wire.read();
-int xAng = map(AcX,minVal,maxVal,-90,90);
-int yAng = map(AcY,minVal,maxVal,-90,90);
-int zAng = map(AcZ,minVal,maxVal,-90,90);
-z= RAD_TO_DEG * (atan2(-yAng, -xAng)+PI);// Optionally, implement drift correction or reset based on other sensors
-double t = millis();
-  integratedYaw += (t - startTime)*z;
+  Wire.write(0x43);  // Starting with the first gyroscope register
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_addr, 6, true);
+
+  int16_t GyX = Wire.read() << 8 | Wire.read();
+  int16_t GyY = Wire.read() << 8 | Wire.read();
+  int16_t GyZ = Wire.read() << 8 | Wire.read();
+
+  // Convert gyroscope data to degrees per second (assuming full scale range ±250°/s)
+  double gz = GyZ / 131.0;
+
+ 
+  unsigned long currentTime = millis();
+  double deltaTime = currentTime - startTime;
   return integratedYaw;
 }
 
