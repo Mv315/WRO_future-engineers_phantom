@@ -1,5 +1,5 @@
 // to check line 242 for which axis of gyro we will read
-#include <Wire.h>a
+#include <Wire.h>
 #include <Servo.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
