@@ -167,13 +167,7 @@ void loop() {
           currentState = STRAIGHTEN_BACKWARD;
           break;
         }
-        
-        if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Turning Right Backward.");
-          stopMotors();
-          currentState = IDLE; // Optionally retry or handle error
-          break;
-        }
+         
       }
       break;
       
@@ -198,23 +192,19 @@ void loop() {
           int steeringAdjustment = map(yawChange * 10, 0, YAW_THRESHOLD * 10, SERVO_LEFT, 90); // Multiply to maintain resolution
           steeringAdjustment = constrain(steeringAdjustment, SERVO_LEFT, 90);
           turnSteering(steeringAdjustment);
-        } else {
-          turnSteering(SERVO_LEFT);
-        }
+        } 
         
         if (yawChange >= YAW_THRESHOLD || (backDistance != -1.0 && backDistance <= MIN_DISTANCE) || backWallDetected) {
           Serial.println("Straightening Complete.");
           stopMotors();
+          if(verifyPosition()){
+            currentState = PARKING_COMPLETE;
+            break
+          }
           currentState = TURN_RIGHT_FORWARD;
           break;
         }
-        
-        if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Straightening Backward.");
-          stopMotors();
-          currentState = IDLE; // Optionally retry or handle error
-          break;
-        }
+
       }
       break;
       
@@ -240,13 +230,8 @@ void loop() {
           break;
         }
         
-        if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Turning Right Forward.");
-          stopMotors();
-          currentState = IDLE; // Optionally retry or handle error
-          break;
         }
-      }
+      
       break;
       
     case STRAIGHTEN_FORWARD:
@@ -283,15 +268,8 @@ void loop() {
             currentState = PARKING_COMPLETE;
           } else {
             Serial.println("Position Verification Failed. Adjusting...");
-            currentState = IDLE; // Optionally implement further adjustment steps
+            currentState = TURN_RIGHT_BACKWARD; // Optionally implement further adjustment steps
           }
-          break;
-        }
-        
-        if (millis() - startTime > TIMEOUT) {
-          Serial.println("Timeout Reached during Straightening Forward.");
-          stopMotors();
-          currentState = IDLE; // Optionally retry or handle error
           break;
         }
       }
