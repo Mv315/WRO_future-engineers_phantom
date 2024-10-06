@@ -24,7 +24,7 @@ const int STEERING_PIN = 8;
 const int SERVO_LEFT = 0;    // Maximum left angle
 const int SERVO_RIGHT = 180; // Maximum right angle
 int currentSteeringAngle = 90; // Start with straight
-
+const int MPU_addr=0x68;
 // Define Motor Pins
 const int IN1 = 2; // Left Motor Forward
 const int IN2 = 3; // Left Motor Backward
@@ -43,12 +43,9 @@ const int FRONT_ECHO_PIN = 10;
 const int BACK_TRIG_PIN = 11;
 const int BACK_ECHO_PIN = 12;
 
-// Define TCS3200 Color Sensor Pins
-const int S0 = A0;
-const int S1 = A1;
-const int S2 = A2;
-const int S3 = A3;
-const int OUT = 13;
+int16_t AcZ,AcY,AcX;
+double x,y,z;
+
 
 // Define thresholds and constants
 const float YAW_THRESHOLD = 45.0; // Degrees
@@ -65,6 +62,8 @@ bool parkingComplete = false;
 
 // Timing Variables
 unsigned long startTime;
+
+//prev time/
 
 // Function Prototypes
 void initializeSensors();
@@ -130,6 +129,12 @@ void setup() {
 
   // Allow sensors to stabilize
   delay(1000);
+Wire.begin();
+Wire.beginTransmission(MPU_addr);
+Wire.write(0x6B);
+Wire.write(0);
+Wire.endTransmission(true);
+Serial.begin(9600);
 
   Serial.println("Initialization Complete.");
 }
@@ -150,9 +155,10 @@ void loop() {
       Serial.println("State: TURN_RIGHT_BACKWARD");
       turnSteering(SERVO_RIGHT);
       moveBackward(150); // Adjust speed as needed
-      startTime = millis();
+      
       
       while (true) {
+        startTime = millis();
         float deltaYaw = readYaw();
         Serial.print("Delta Yaw: ");
         Serial.println(deltaYaw);
@@ -295,21 +301,20 @@ void loop() {
 
 // Function to read and integrate yaw from MPU6050
 float readYaw() {
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  // Get gyro Z axis rate in degrees per second
-  float gyroZ = g.gyro.z;
-
-  // Assume loop runs at roughly 100Hz (10ms)
-  // In a real scenario, calculate the actual delta time
-  float deltaTime = 0.01; // 10 ms
-
-  // Integrate gyroZ to get yaw; positive for clockwise, negative for counter-clockwise
-  integratedYaw += gyroZ * deltaTime;
-
-  // Optionally, implement drift correction or reset based on other sensors
-
+Wire.beginTransmission(MPU_addr);
+Wire.write(0x3B);
+Wire.endTransmission(false);
+Wire.requestFrom(MPU_addr,14,true);
+AcZ=Wire.read()<<8|Wire.read();
+AcX=Wire.read()<<8|Wire.read();
+AcY=Wire.read()<<8|Wire.read();
+AcZ=Wire.read()<<8|Wire.read();
+int xAng = map(AcX,minVal,maxVal,-90,90);
+int yAng = map(AcY,minVal,maxVal,-90,90);
+int zAng = map(AcZ,minVal,maxVal,-90,90);
+z= RAD_TO_DEG * (atan2(-yAng, -xAng)+PI);// Optionally, implement drift correction or reset based on other sensors
+double t = millis();
+  integratedYaw += (t - startTime)*z;
   return integratedYaw;
 }
 
